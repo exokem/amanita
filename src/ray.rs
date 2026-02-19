@@ -90,6 +90,14 @@ pub mod context {
 		fn outline_rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: impl Into<Color>) {
 			self.draw_rectangle_lines(x, y, w, h, color.into());
 		}
+		
+		fn calculate_text_size(&self, text: &str, size: i32) -> (i32, i32) {
+			(self.measure_text(&text, size), size)
+		}
+		
+		fn fill_text(&mut self, x: i32, y: i32, text: &str, size: i32, color: impl Into<Color>) {
+			self.draw_text(text, x, y, size, color.into());
+		}
 	}
 
 	impl RenderContext for RaylibMode2D<'_, RaylibDrawHandle<'_>> {
@@ -99,6 +107,14 @@ pub mod context {
 
 		fn outline_rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: impl Into<Color>) {
 			self.draw_rectangle_lines(x, y, w, h, color.into());
+		}
+		
+		fn calculate_text_size(&self, text: &str, size: i32) -> (i32, i32) {
+			(self.measure_text(&text, size), size)
+		}
+		
+		fn fill_text(&mut self, x: i32, y: i32, text: &str, size: i32, color: impl Into<Color>) {
+			self.draw_text(text, x, y, size, color.into());
 		}
 	}
 }
