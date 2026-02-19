@@ -1,4 +1,4 @@
-use std::{ffi::CString, i32::MAX};
+use std::{collections::VecDeque, ffi::CString, i32::MAX, ops::{Add, Sub}};
 
 use raylib::{color::Color, ffi::{self, Vector2}, prelude::RaylibDraw, RaylibHandle};
 use crate::{ray::context, vld::RenderContext};
@@ -144,6 +144,9 @@ impl Padding {
 struct Style {
     padding: Option<Padding>,
     border: Option<Border>,
+
+	min_width: i32,
+	min_height: i32,
 }
 
 // impl Tag {
@@ -199,9 +202,56 @@ struct RenderBox {
     h: i32,
 }
 
+impl RenderBox {
+	pub fn zero() -> Self {
+		RenderBox {x: 0, y: 0, w: 0, h:0}
+	}
+}
+
+#[derive(Debug, Clone, Copy)]
 struct Vec2i {
 	x: i32,
 	y: i32,
+}
+
+impl Add for Vec2i {
+	type Output = Vec2i;
+
+	fn add(self, rhs: Self) -> Self::Output {
+		Vec2i::new(self.x + rhs.x, self.y + rhs.y)
+	}
+}
+
+impl Sub for Vec2i {
+	type Output = Vec2i;
+	
+	fn sub(self, rhs: Self) -> Self::Output {
+		Vec2i::new(self.x - rhs.x, self.y - rhs.y)
+	}
+}
+
+impl Into<Vec2i> for (i32, i32) {
+	fn into(self) -> Vec2i {
+		Vec2i::new(self.0, self.1)
+	}
+}
+
+impl Vec2i {
+	pub fn new(x: i32, y: i32) -> Self {
+		Self {x: x, y: y}
+	}
+
+	pub fn zero() -> Self {
+		Self {x: 0, y: 0}
+	}
+
+	pub fn max(self, other: Self) -> Self {
+		Self {x: self.x.max(other.x), y: self.y.max(other.y)}
+	}
+
+	pub fn min(self, other: Self) -> Self {
+		Self {x: self.x.min(other.x), y: self.y.min(other.y)}
+	}
 }
 
 impl RenderBox {
@@ -233,68 +283,305 @@ impl RenderBox {
 #[derive(Debug)]
 struct Element {
     tag: Tag,
-    content: Vec<Element>,
+    elements: Vec<Element>,
     style: Option<Style>,
 	layout: Layout,
 }
 
-impl Element {
-	pub fn measure(&self, b: &RenderBox, context: &impl RenderContext) -> Vec2i {
-		let mut b = *b;
-		let mut width: i32 = 0;
-		let mut height: i32 = 0;
+struct MeasuredElement<'a> {
+	// Exact render area of the element
+	element: &'a Element,
+	rb: RenderBox,
+}
 
-		// Apply padding & border to get content area
-        if let Some(style) = &self.style {
-            if let Some(border) = &style.border {
-				width += (border.width.l + border.width.r) as i32;
-				height += (border.width.t + border.width.b) as i32;
-				b = border.internal_box(&b);
+struct RenderRef {
+	render_index: usize,
+	element_render_indices: Option<Vec<usize>>
+}
+
+impl Element {
+	// Breadth-first traversal to determine render order of all elements in hierarchy
+	pub fn render_order(root: &Element) -> Vec<&Element> {
+		let mut elements: Vec<&Element> = vec![];
+		let mut queue = VecDeque::from([root]);
+
+		while queue.len() != 0 && let Some(next) = queue.pop_front() {
+			elements.push(next);
+
+			// Add contents to queue
+			for el in &next.elements {
+				queue.push_back(&el);
+			}
+		}
+
+		elements
+	}
+
+	pub fn measure_element(element: &Element, sub_element_boxes: &Vec<RenderBox>, context: &impl RenderContext) -> RenderBox {
+		// Border + padding
+		let mut frame_size = Vec2i::zero();
+		let mut min_size = Vec2i::zero();
+
+		if let Some(style) = &element.style {
+			if let Some(border) = &style.border {
+				frame_size.x += (border.width.l + border.width.r) as i32;
+				frame_size.y += (border.width.t + border.width.b) as i32;
             }
 
             if let Some(padding) = &style.padding {
-				width += (padding.l + padding.r) as i32;
-				height += (padding.t + padding.b) as i32;
-				b = padding.internal_box(&b);
+				frame_size.x += (padding.l + padding.r) as i32;
+				frame_size.y += (padding.t + padding.b) as i32;
             }
-        }
 
-		match &self.tag {
+			min_size.x = style.min_width;
+			min_size.y = style.min_height;
+		}
+
+		let content_size = match &element.tag {
 			Tag::Frame => {
-				match &self.layout {
+				match &element.layout {
 					Layout::Sequential => {
 						let mut w = 0;
-						for el in &self.content {
-							let size = el.measure(&b, context);
-							height += size.y;
-							w = w.max(size.x);
+						let mut h = 0;
+
+						for size in sub_element_boxes {
+							w = w.max(size.w);
+							h += size.h;
 						}
 
-						return Vec2i {x: width + w, y: height}
+						Vec2i::new(w, h)
 					},
 					Layout::Flex { gap, direction, is_reverse, axis_alignment, cross_alignment, spacing } => {
 						match direction {
 							FlexDirection::Row => {
-								let mut w = (gap * (self.content.len() - 1)) as i32;
+								let mut w = ((sub_element_boxes.len() - 1) * gap) as i32;
 								let mut h = 0;
-								for el in &self.content {
+
+								for size in sub_element_boxes {
+									w += size.w;
+									h = h.max(size.h);
+								}
+
+								Vec2i::new(w, h)
+							},
+							FlexDirection::Col => {
+								let mut w = 0;
+								let mut h = ((sub_element_boxes.len() - 1) * gap) as i32;
+
+								for size in sub_element_boxes {
+									w = w.max(size.w);
+									h += size.h;
+								}
+
+								Vec2i::new(w, h)
+							},
+						}
+					},
+					Layout::Grid { gap_row, gap_col, rows, cols } => todo!(),
+				}
+			},
+			Tag::Label { text, font } => {
+				context.calculate_text_size(text, font.size).into()
+			},
+		};
+
+		let measured_size = frame_size + content_size;
+		let size = measured_size.max(min_size);
+
+		RenderBox {
+			x: 0,
+			y: 0,
+			w: size.x,
+			h: size.y,
+		}
+	}
+
+	// Position sub elements within the element
+	pub fn arrange_element_content(element: &Element, sub_element_boxes: &mut Vec<RenderBox>) {
+
+	}
+
+	// Calculate minimum sizes based on styles & composition
+	pub fn measure_elements<'a>(root: &'a Element, context: &impl RenderContext) -> (Vec<&'a Element>, Vec<RenderBox>) {
+		let mut order: Vec<&Element> = vec![];
+		let mut linkages: Vec<RenderRef> = vec![];
+
+		let mut queue = VecDeque::from([root]);
+
+		let mut render_index = 0;
+
+		// 1. Render Ordering
+		// Determine render order with linkages between elements and their sub-elements
+		// Linkages essentially map the render index of an element to the render indices
+		// of each of its contained sub-elements
+		// That way, when measuring elements non-recursively in reverse render order,
+		// Elements that contain sub-elements will have a way to retrieve the measured
+		// sizes of their sub-elements
+		while queue.len() != 0 && let Some(next) = queue.pop_front() {
+
+			// Sub-element render indices will start at current + queue size + 1
+
+			let element_indices = if next.elements.len() != 0 {
+				let mut element_indices = Vec::with_capacity(next.elements.len());
+
+				// Add contents to queue
+				for el in &next.elements {
+					element_indices.push(render_index + queue.len() + 1);
+					queue.push_back(&el);
+				}
+
+				Some(element_indices)
+			} else {
+				None
+			};
+
+			order.push(next);
+			linkages.push(RenderRef { render_index: render_index, element_render_indices: element_indices });
+
+			render_index += 1;
+		}
+
+		// Measured elements in reverse order
+		// let mut boxes 
+
+		let mut boxes = Vec::from_iter(order.iter().map(|_| {
+			RenderBox::zero()
+		}));
+
+		// 2. Size Measuring
+		for i in (0..order.len()).rev() {
+			let element = order[i];
+			let linkage = &linkages[i];
+
+			let sub_element_boxes = if let Some(indices) = &linkage.element_render_indices {
+				Vec::from_iter(indices.iter().map(|ref_i| {
+					boxes[*ref_i]
+				}))
+			} else {
+				Vec::with_capacity(0)
+			};
+
+			boxes[i] = Element::measure_element(element, &sub_element_boxes, context);
+		}
+
+		// 3. Position Arrangement
+		// All positions are relative to the root element
+		// Absolute positions are determined during rendering by applying an offset
+		for i in 0..order.len() {
+			let element = order[i];
+			let linkage = &linkages[i];
+
+			let mut sub_element_boxes = if let Some(indices) = &linkage.element_render_indices {
+				Vec::from_iter(indices.iter().map(|ref_i| {
+					boxes[*ref_i]
+				}))
+			} else {
+				Vec::with_capacity(0)
+			};
+
+			Element::arrange_element_content(element, &mut sub_element_boxes);
+		}
+
+		(order, boxes)
+	}
+
+	// pub fn render_elements(order: Vec<&Element>, sizes: Vec<Vec2i>, rb: &RenderBox, context: &mut impl RenderContext) {
+	// 	for i in 0..order.len() {
+	// 		let element = *order.get(i).unwrap();
+	// 		let size = *sizes.get(i).unwrap();
+
+
+	// 	}
+	// }
+
+	// pub fn measure_struct<'a>(root: &'a Element, b: &'a RenderBox, context: &'a impl RenderContext) -> Vec<MeasuredElement<'a>> {
+	// 	// 1. Breadth-first traversal: collect all elements into an ordered list (render order)
+
+	// 	let mut elements: Vec<MeasuredElement> = vec![];
+	// 	let mut queue = VecDeque::from([root]);
+
+	// 	while queue.len() != 0 && let Some(next) = queue.pop_front() {
+	// 		elements.push(MeasuredElement { b: RenderBox, element: () });
+
+
+	// 		// Add contents to queue
+	// 		for el in &next.content {
+	// 			queue.push_back(&el);
+	// 		}
+	// 	}
+
+
+
+	// 	// 2. Measuring: calculate element sizes in reverse render order
+
+	// 	let measures = vec![];
+
+		
+
+	// 	measures
+	// }
+
+	pub fn measure(&self, b: &RenderBox, context: &impl RenderContext) -> Vec2i {
+		let mut b = *b;
+		let mut measured_width: i32 = 0;
+		let mut measured_height: i32 = 0;
+
+		let mut min_size: Vec2i = Vec2i::zero();
+
+		// Apply padding & border to get content area
+        if let Some(style) = &self.style {
+            if let Some(border) = &style.border {
+				measured_width += (border.width.l + border.width.r) as i32;
+				measured_height += (border.width.t + border.width.b) as i32;
+				b = border.internal_box(&b);
+            }
+
+            if let Some(padding) = &style.padding {
+				measured_width += (padding.l + padding.r) as i32;
+				measured_height += (padding.t + padding.b) as i32;
+				b = padding.internal_box(&b);
+            }
+
+			min_size.x = style.min_width;
+			min_size.y = style.min_height;
+        }
+
+		let tag_size = match &self.tag {
+			Tag::Frame => {
+				match &self.layout {
+					Layout::Sequential => {
+						let mut w = 0;
+						for el in &self.elements {
+							let size = el.measure(&b, context);
+							measured_height += size.y;
+							w = w.max(size.x);
+						}
+
+						Vec2i {x: measured_width + w, y: measured_height}
+					},
+					Layout::Flex { gap, direction, is_reverse, axis_alignment, cross_alignment, spacing } => {
+						match direction {
+							FlexDirection::Row => {
+								let mut w = (gap * (self.elements.len() - 1)) as i32;
+								let mut h = 0;
+								for el in &self.elements {
 									let size = el.measure(&b, context);
 									w += size.x;
 									h = h.max(size.y);
 								}
 
-								Vec2i {x: width + w, y: height + h}
+								Vec2i {x: measured_width + w, y: measured_height + h}
 							},
 							FlexDirection::Col => {
 								let mut w = 0;
-								let mut h = (gap * (self.content.len() - 1)) as i32;
-								for el in &self.content {
+								let mut h = (gap * (self.elements.len() - 1)) as i32;
+								for el in &self.elements {
 									let size = el.measure(&b, context);
 									h += size.y;
 									w = w.max(size.x);
 								}
 
-								Vec2i {x: width + w, y: height + h}
+								Vec2i {x: measured_width + w, y: measured_height + h}
 							},
 						}
 					},
@@ -304,9 +591,11 @@ impl Element {
 			Tag::Label { text, font } => {
 				let (content_width, content_height) = context.calculate_text_size(text, font.size);
 
-				Vec2i {x: width + content_width, y: height + content_height}
+				Vec2i {x: measured_width + content_width, y: measured_height + content_height}
 			},
-		}
+		};
+
+		Vec2i {x: tag_size.x.max(min_size.x), y: tag_size.y.max(min_size.y)}
 	}
 
 	pub fn render(&self, b: &RenderBox, context: &mut impl RenderContext) {
@@ -333,7 +622,7 @@ impl Element {
 				match &self.layout {
 					Layout::Sequential => {
 						let mut y = b.y;
-						for el in &self.content {
+						for el in &self.elements {
 							let size = el.measure(&b, context);
 							let el_rb = RenderBox {x: b.x, y: y, w: size.x, h: size.y};
 							el.render(&el_rb, context);
@@ -345,7 +634,7 @@ impl Element {
 						match direction {
 							FlexDirection::Row => {
 								let mut x = b.x;
-								for el in &self.content {
+								for el in &self.elements {
 									let size = el.measure(&b, context);
 
 									let y = match cross_alignment {
@@ -362,7 +651,7 @@ impl Element {
 							},
 							FlexDirection::Col => {
 								let mut y = b.y;
-								for el in &self.content {
+								for el in &self.elements {
 									let size = el.measure(&b, context);
 
 									let x = match cross_alignment {
@@ -431,32 +720,62 @@ fn main() {
 
     let ui = Element {
         tag: Tag::Frame,
-		layout: Layout::Flex { gap: 6, direction: FlexDirection::Col, is_reverse: false, axis_alignment: Alignment::Start, cross_alignment: Alignment::End, spacing: Spacing::None },
-        content: vec![
+		layout: Layout::Flex { gap: 6, direction: FlexDirection::Row, is_reverse: false, axis_alignment: Alignment::Start, cross_alignment: Alignment::End, spacing: Spacing::None },
+        elements: vec![
             Element {
                 tag: Tag::Label {
-                    text: String::from("test label"),
+                    text: String::from("one"),
 					font: Font { size: 32 },
                 },
 				layout: Layout::Sequential,
-                content: vec![],
+                elements: vec![],
                 style: Some(Style {
                     padding: Some(Padding::new_uniform(3)),
-                    border: Some(Border { color: Color::ORANGE, width: SidedSize::new_uniform(3) })
+                    border: Some(Border { color: Color::ORANGE, width: SidedSize::new_uniform(3) }),
+					min_width: 0,
+					min_height: 0,
                 }),
             },
             Element {
                 tag: Tag::Label {
-                    text: String::from("test"),
+                    text: String::from("two"),
 					font: Font { size: 16 },
                 },
 				layout: Layout::Sequential,
-                content: vec![],
+                elements: vec![],
                 style: Some(Style {
                     padding: Some(Padding::new_uniform(3)),
-                    border: Some(Border { color: Color::ORANGE, width: SidedSize::new_uniform(3) })
+                    border: Some(Border { color: Color::ORANGE, width: SidedSize::new_uniform(3) }),
+					min_width: 0,
+					min_height: 0,
                 }),
             },
+			Element {
+				tag: Tag::Frame,
+				layout: Layout::Flex { gap: 6, direction: FlexDirection::Row, is_reverse: false, axis_alignment: Alignment::Start, cross_alignment: Alignment::End, spacing: Spacing::None },
+				elements: vec![
+					Element {
+						tag: Tag::Label {
+							text: String::from("three"),
+							font: Font { size: 24 },
+						},
+						layout: Layout::Sequential,
+						elements: vec![],
+						style: Some(Style {
+							padding: Some(Padding::new_uniform(3)),
+							border: Some(Border { color: Color::ORANGE, width: SidedSize::new_uniform(3) }),
+							min_width: 0,
+							min_height: 0,
+						}),
+					},
+				],
+				style: Some(Style {
+					padding: Some(Padding::new_uniform(3)),
+					border: Some(Border { color: Color::GREEN, width: SidedSize::new_uniform(3) }),
+					min_width: 0,
+					min_height: 0,
+				}),
+			}
             // Element {
             //     tag: Tag::Button,
             //     content: vec![
@@ -470,7 +789,9 @@ fn main() {
         ],
         style: Some(Style {
             padding: Some(Padding::new_uniform(3)),
-            border: Some(Border { color: Color::GREEN, width: SidedSize::new_uniform(3) })
+            border: Some(Border { color: Color::GREEN, width: SidedSize::new_uniform(3) }),
+			min_width: 400,
+			min_height: 0,
         }),
     };
 
@@ -483,6 +804,10 @@ fn main() {
             let rb = RenderBox {x: 10, y: 10, w: w - 20, h: h - 20};
 
             ui.render(&rb, &mut d);
+
+			let measures = Element::measure_elements(&ui, &d);
+			println!("TEST");
+			// Element::render_elements(order, sizes, &rb, &mut d);
         }
     }
 }
