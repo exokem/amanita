@@ -347,7 +347,14 @@ impl Element {
 								let mut x = b.x;
 								for el in &self.content {
 									let size = el.measure(&b, context);
-									let el_rb = RenderBox {x: x, y: b.y, w: size.x, h: size.y};
+
+									let y = match cross_alignment {
+										Alignment::Start => b.y,
+										Alignment::Center => b.y + (b.h - size.y) / 2,
+										Alignment::End => b.y + b.h - size.y,
+									};
+
+									let el_rb = RenderBox {x: x, y: y, w: size.x, h: size.y};
 									el.render(&el_rb, context);
 
 									x += size.x + (*gap as i32);
@@ -357,7 +364,14 @@ impl Element {
 								let mut y = b.y;
 								for el in &self.content {
 									let size = el.measure(&b, context);
-									let el_rb = RenderBox {x: b.x, y: y, w: size.x, h: size.y};
+
+									let x = match cross_alignment {
+										Alignment::Start => b.x,
+										Alignment::Center => b.x + (b.w - size.x) / 2,
+										Alignment::End => b.x + b.w - size.x,
+									};
+
+									let el_rb = RenderBox {x: x, y: y, w: size.x, h: size.y};
 									el.render(&el_rb, context);
 
 									y += size.y + (*gap as i32);
@@ -417,7 +431,7 @@ fn main() {
 
     let ui = Element {
         tag: Tag::Frame,
-		layout: Layout::Flex { gap: 6, direction: FlexDirection::Row, is_reverse: false, axis_alignment: Alignment::Start, cross_alignment: Alignment::Start, spacing: Spacing::None },
+		layout: Layout::Flex { gap: 6, direction: FlexDirection::Col, is_reverse: false, axis_alignment: Alignment::Start, cross_alignment: Alignment::End, spacing: Spacing::None },
         content: vec![
             Element {
                 tag: Tag::Label {
@@ -433,8 +447,8 @@ fn main() {
             },
             Element {
                 tag: Tag::Label {
-                    text: String::from("test label"),
-					font: Font { size: 32 },
+                    text: String::from("test"),
+					font: Font { size: 16 },
                 },
 				layout: Layout::Sequential,
                 content: vec![],
