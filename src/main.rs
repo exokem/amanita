@@ -1,10 +1,11 @@
 use std::{collections::VecDeque, ffi::CString, i32::MAX, ops::{Add, Sub}};
 
 use raylib::{color::Color, ffi::{self, Vector2}, prelude::RaylibDraw, RaylibHandle};
-use crate::{ray::context, vld::RenderContext};
+use crate::{ray::context, vld::RenderContext, vec2::Vec2i};
 
 mod ray;
 mod vld;
+mod vec2;
 
 #[derive(Debug)]
 struct Font {
