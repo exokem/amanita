@@ -23,7 +23,9 @@ pub trait InputContext {
 	/// Mouse screen position
 	fn cursor_pos_screen(&self) -> Vector2;
 
-	fn cursor_pos_world(&self, camera: &impl CameraContext) -> Vector2;
+	fn cursor_pos_world(&self, camera: &impl CameraContext) -> Vector2 {
+		camera.screen_to_world(self.cursor_pos_screen())
+	}
 
 	fn scroll_delta(&self) -> Vector2;
 

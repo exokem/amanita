@@ -69,10 +69,6 @@ pub mod context {
 			self.get_mouse_position()
 		}
 
-		fn cursor_pos_world(&self, camera: &impl CameraContext) -> Vector2 {
-			camera.screen_to_world(self.get_mouse_position())
-		}
-		
 		fn scroll_delta(&self) -> Vector2 {
 			self.get_mouse_wheel_move_v().into()
 		}
