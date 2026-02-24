@@ -65,7 +65,7 @@ impl Padding {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Style {
 	pub padding: Option<Padding>,
 	pub border: Option<Border>,
@@ -77,4 +77,69 @@ pub struct Style {
 
 	pub min_height: i32,
 	pub max_height: Option<i32>,
+}
+
+impl Style {
+	pub fn padding(mut self, padding: Padding) -> Self {
+		self.padding = Some(padding);
+		self
+	}
+
+	pub fn border(mut self, border: Border) -> Self {
+		self.border = Some(border);
+		self
+	}
+
+	pub fn background(mut self, background: Color) -> Self {
+		self.background = Some(background);
+		self
+	}
+
+	pub fn min_width(mut self, min_width: i32) -> Self {
+		self.min_width = min_width;
+		self
+	}
+
+	pub fn max_width(mut self, max_width: i32) -> Self {
+		self.max_width = Some(max_width);
+		self
+	}
+
+	pub fn min_height(mut self, min_height: i32) -> Self {
+		self.min_height = min_height;
+		self
+	}
+
+	pub fn max_height(mut self, max_height: i32) -> Self {
+		self.max_height = Some(max_height);
+		self
+	}
+
+	pub fn min_size(mut self, width: i32, height: i32) -> Self {
+		self.min_width = width;
+		self.min_height = height;
+		self
+	}
+
+	pub fn max_size(mut self, width: i32, height: i32) -> Self {
+		self.max_width = Some(width);
+		self.max_height = Some(height);
+		self
+	}
+}
+
+impl Default for Style {
+	fn default() -> Self {
+		Self {
+			padding: None,
+			border: None,
+			background: None,
+
+			min_width: 0,
+			max_width: None,
+
+			min_height: 0,
+			max_height: None,
+		}
+	}
 }

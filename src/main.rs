@@ -145,18 +145,9 @@ fn main() {
                 },
 				layout: Layout::Sequential,
                 elements: vec![],
-                style: Style {
-                    padding: Some(Padding::new_uniform(3)),
-                    border: Some(Border { color: Color::ORANGE, width: SidedSize::new_uniform(3) }),
-					min_width: 0,
-					min_height: 0,
-					max_width: None,
-					max_height: None,
-					background: None,
-                },
+                style: Style::default().padding(Padding::new_uniform(3)),
             },
-            
-			
+
             // },
 			Element {
 				state: ElementState::Scroll { offset_y: 0.0 },
@@ -181,16 +172,7 @@ fn main() {
 								},
 									layout: Layout::Sequential,
 								    elements: vec![],
-								    style: Style {
-								        padding: Some(Padding::new_uniform(3)),
-								        border: Some(Border { color: Color::ORANGE, width: SidedSize::new_uniform(3) }),
-										min_width: 0,
-										min_height: 0,
-										max_width: None,
-										max_height: None,
-										
-										background: Some(Color::GREEN),
-								    },
+									style: Style::default().padding(Padding::new_uniform(3)).background(Color::GREEN),
 							},
 							Element {
 								state: ElementState::None,
@@ -200,16 +182,7 @@ fn main() {
 								},
 									layout: Layout::Sequential,
 								    elements: vec![],
-								    style: Style {
-								        padding: Some(Padding::new_uniform(3)),
-								        border: Some(Border { color: Color::ORANGE, width: SidedSize::new_uniform(3) }),
-										min_width: 0,
-										min_height: 0,
-										max_width: None,
-										max_height: None,
-
-										background: Some(Color::RED),
-								    },
+								    style: Style::default().padding(Padding::new_uniform(3)).background(Color::RED),
 							},
 							Element {
 								state: ElementState::None,
@@ -219,39 +192,13 @@ fn main() {
 								},
 									layout: Layout::Sequential,
 								    elements: vec![],
-								    style: Style {
-								        padding: Some(Padding::new_uniform(3)),
-								        border: Some(Border { color: Color::ORANGE, width: SidedSize::new_uniform(3) }),
-										min_width: 0,
-										min_height: 0,
-										max_width: None,
-										max_height: None,
-
-										background: Some(Color::YELLOW),
-								    },
+								    style: Style::default().padding(Padding::new_uniform(3)).background(Color::YELLOW),
 							}
 						],
-						style: Style {
-							padding: Some(Padding::new_uniform(3)),
-							border: Some(Border { color: Color::ORANGE, width: SidedSize::new_uniform(3) }),
-							min_width: 0,
-							min_height: 0,
-							max_width: None,
-							max_height: None,
-							
-							background: None,
-						},
+						style: Style::default().padding(Padding::new_uniform(3)),
 					},
 				],
-				style: Style {
-					padding: Some(Padding::new_uniform(3)),
-					border: Some(Border { color: Color::GREEN, width: SidedSize::new_uniform(3) }),
-					min_width: 0,
-					min_height: 0,
-					max_width: Some(300),
-					max_height: Some(400),
-					background: None,
-				},
+				style: Style::default().padding(Padding::new_uniform(3)).max_size(300, 400),
 			}
             // Element {
             //     tag: Tag::Button,
@@ -264,15 +211,7 @@ fn main() {
             //     }),
             // }
         ],
-        style: Style {
-            padding: Some(Padding::new_uniform(3)),
-            border: Some(Border { color: Color::GREEN, width: SidedSize::new_uniform(3) }),
-			min_width: 600,
-			min_height: 200,
-			max_width: None,
-			max_height: None,
-			background: None,
-        },
+		style: Style::default().padding(Padding::new_uniform(3)).min_size(600, 200),
     };
 
     while !ray.handle.window_should_close() {
