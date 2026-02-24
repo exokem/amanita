@@ -396,8 +396,8 @@ impl Element {
 							_ => (0.0, 0.0)
 						};
 
-						let scrolled_offset = offset + measure.position + (0, oy as i32).into();
-						
+						let scrolled_offset = offset + measure.position + (measure.inner_box.x, measure.inner_box.y).into() + (0, oy as i32).into();
+
 						Element::render(&body, Some(scrolled_offset), input,  measure_context, &mut clip_context);
 					} else {
 						panic!("Unsupported clipping operation")
