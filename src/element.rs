@@ -52,8 +52,31 @@ pub struct ElementMeasure {
 }
 
 impl Element {
-	fn measure_element_content(element: &Element, sub_element_measures: &[ElementMeasure], context: &impl MeasureContext) -> Vec2i {
+	fn render_element(element: &Element, offset: Vec2i, measure: &ElementMeasure, input: &impl InputContext, context: &mut impl RenderContext) {
+		context.outline_rect(measure.position.x + offset.x, measure.position.y + offset.y, measure.size.x, measure.size.y, Color::RED);
 
+		if let Some(bg) = element.style.background {
+			context.fill_rect(measure.position.x + offset.x, measure.position.y + offset.y, measure.size.x, measure.size.y, bg);
+		}
+		// context.outline_rect(measure.inner_box.x, measure.inner_box.y, measure.inner_box.w, measure.inner_box.h, Color::GREEN);
+	}
+
+	pub fn update(root: &mut Element, input: &impl InputContext, measure_context: &impl MeasureContext) {
+		// TODO: determine best order for updating (probably reverse render order, especially so inputs can be consumed at the highest level)
+
+		let mut queue = VecDeque::from([root]);
+
+		while !queue.is_empty() && let Some(el) = queue.pop_front() {
+			el.state.update(input);
+
+			for sub in &mut el.elements {
+				queue.push_back(sub);
+			}
+		}
+	}
+
+    //<editor-fold desc="Measuring">
+    fn measure_element_content(element: &Element, sub_element_measures: &[ElementMeasure], context: &impl MeasureContext) -> Vec2i {
 		// Sequential (plain column):
 		// - Width: largest sub element width
 		// - Height: sum of sub element heights
@@ -110,7 +133,7 @@ impl Element {
 		}
 	}
 
-	pub fn measure_element(element: &Element, sub_element_measures: &[ElementMeasure], context: &impl MeasureContext) -> ElementMeasure {
+	fn measure_element(element: &Element, sub_element_measures: &[ElementMeasure], context: &impl MeasureContext) -> ElementMeasure {
 		let content_size = Element::measure_element_content(element, sub_element_measures, context);
 
 		// Border + padding
@@ -140,8 +163,37 @@ impl Element {
 		ElementMeasure { position: Vec2i::zero(), size: size, inner_box: inner_box }
 	}
 
-	// Position sub elements within the element
-	pub fn arrange_element_content(element: &Element, measure: &ElementMeasure, sub_element_measures: &mut [ElementMeasure]) {
+	fn measure(order: &Vec<&Element>, linkages: &Vec<RenderRef>, measure_context: &impl MeasureContext) -> Vec<ElementMeasure> {
+		let mut measures = Vec::from_iter(order.iter().map(|_| {
+			ElementMeasure {
+				position: Vec2i::zero(),
+				size: Vec2i::zero(),
+				inner_box: RenderBox::zero(),
+			}
+		}));
+
+		for i in (0..order.len()).rev() {
+			let element = order[i];
+			let linkage = &linkages[i];
+
+			measures[i] = if let Some(indices) = &linkage.element_render_indices {
+				let start = *indices.first().unwrap();
+				let end = *indices.last().unwrap() + 1;
+				Element::measure_element(element, &measures[start..end], measure_context)
+			} else {
+				Element::measure_element(element, &measures[0..0], measure_context)
+			};
+
+			// measures[i] = Element::measure_element(element, &sub_element_measures, context);
+		}
+
+		measures
+	}
+    //</editor-fold>
+
+    //<editor-fold desc="Arranging">
+    // Position sub elements within the element
+	fn arrange_element_content(element: &Element, measure: &ElementMeasure, sub_element_measures: &mut [ElementMeasure]) {
 		if sub_element_measures.is_empty() {
 			return
 		}
@@ -260,56 +312,6 @@ impl Element {
 		}
 	}
 
-	pub fn render_element(element: &Element, offset: Vec2i, measure: &ElementMeasure, input: &impl InputContext, context: &mut impl RenderContext) {
-		context.outline_rect(measure.position.x + offset.x, measure.position.y + offset.y, measure.size.x, measure.size.y, Color::RED);
-
-		if let Some(bg) = element.style.background {
-			context.fill_rect(measure.position.x + offset.x, measure.position.y + offset.y, measure.size.x, measure.size.y, bg);
-		}
-		// context.outline_rect(measure.inner_box.x, measure.inner_box.y, measure.inner_box.w, measure.inner_box.h, Color::GREEN);
-	}
-
-	pub fn update(root: &mut Element, input: &impl InputContext, measure_context: &impl MeasureContext) {
-		// TODO: determine best order for updating (probably reverse render order, especially so inputs can be consumed at the highest level)
-
-		let mut queue = VecDeque::from([root]);
-
-		while !queue.is_empty() && let Some(el) = queue.pop_front() {
-			el.state.update(input);
-
-			for sub in &mut el.elements {
-				queue.push_back(sub);
-			}
-		}
-	}
-
-	fn measure(order: &Vec<&Element>, linkages: &Vec<RenderRef>, measure_context: &impl MeasureContext) -> Vec<ElementMeasure> {
-		let mut measures = Vec::from_iter(order.iter().map(|_| {
-			ElementMeasure {
-				position: Vec2i::zero(),
-				size: Vec2i::zero(),
-				inner_box: RenderBox::zero(),
-			}
-		}));
-
-		for i in (0..order.len()).rev() {
-			let element = order[i];
-			let linkage = &linkages[i];
-
-			measures[i] = if let Some(indices) = &linkage.element_render_indices {
-				let start = *indices.first().unwrap();
-				let end = *indices.last().unwrap() + 1;
-				Element::measure_element(element, &measures[start..end], measure_context)
-			} else {
-				Element::measure_element(element, &measures[0..0], measure_context)
-			};
-
-			// measures[i] = Element::measure_element(element, &sub_element_measures, context);
-		}
-
-		measures
-	}
-
 	fn arrange(order: &Vec<&Element>, linkages: &Vec<RenderRef>, measures: &mut Vec<ElementMeasure>) {
 		// All positions are relative to the root element
 		// Absolute positions are determined during rendering by applying an offset
@@ -327,6 +329,7 @@ impl Element {
 			}
 		}
 	}
+    //</editor-fold>
 
 	pub fn render(root: &Element, offset: Option<Vec2i>, input: &impl InputContext, measure_context: &impl MeasureContext, context: &mut impl RenderContext) {
 		let mut order: Vec<&Element> = vec![];
