@@ -41,6 +41,43 @@ pub mod context {
 		}
 	}
 
+	pub struct RayInputContext {}
+
+	impl InputContext for RayInputContext {
+		fn button_status(&self, button: MouseButton) -> InputState {
+			InputState {
+				up: unsafe { ffi::IsMouseButtonUp(button as i32) },
+				down: unsafe { ffi::IsMouseButtonDown(button as i32) },
+				pressed: unsafe { ffi::IsMouseButtonPressed(button as i32) },
+				released: unsafe { ffi::IsMouseButtonReleased(button as i32) },
+			}
+		}
+
+		fn key_status(&self, key: KeyboardKey) -> InputState {
+			InputState {
+				up: unsafe { ffi::IsKeyUp((key as u32) as i32) },
+				down: unsafe { ffi::IsKeyDown((key as u32) as i32) },
+				pressed: unsafe { ffi::IsKeyPressed((key as u32) as i32) },
+				released: unsafe { ffi::IsKeyReleased((key as u32) as i32) },
+			}
+		}
+	
+		fn cursor_delta(&self) -> Vector2 {
+			unsafe { ffi::GetMouseDelta().into() }
+		}
+	
+		fn cursor_pos_screen(&self) -> Vector2 {
+			unsafe { ffi::GetMousePosition().into() }
+		}
+	
+		fn scroll_delta(&self) -> Vector2 {
+			(unsafe { ffi::GetMouseWheelMoveV() }).into()
+		}
+	
+		fn scroll_delta_x(&self) -> f32 {
+			unsafe { ffi::GetMouseWheelMove() }
+		}
+	}
 
 	impl InputContext for RaylibHandle {
 		fn button_status(&self, button: MouseButton) -> InputState {
