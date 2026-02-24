@@ -167,7 +167,10 @@ fn main() {
 					Element {
 						state: ElementState::None,
 						tag: Tag::Frame,
-						layout: Flex::row().build(),
+						layout: Flex::col().item_gap(6)
+							.axis_align(Alignment::Center)
+							.cross_align(Alignment::Center)
+							.spacing(Spacing::Between).build(),
 						// state: State::new(),
 						elements: vec![
 							Element {
@@ -186,7 +189,45 @@ fn main() {
 										max_width: None,
 										max_height: None,
 										
-										background: None,
+										background: Some(Color::GREEN),
+								    },
+							},
+							Element {
+								state: ElementState::None,
+								tag: Tag::Label {
+									text: String::from("balls"),
+									font: Font { size: 48 },
+								},
+									layout: Layout::Sequential,
+								    elements: vec![],
+								    style: Style {
+								        padding: Some(Padding::new_uniform(3)),
+								        border: Some(Border { color: Color::ORANGE, width: SidedSize::new_uniform(3) }),
+										min_width: 0,
+										min_height: 0,
+										max_width: None,
+										max_height: None,
+
+										background: Some(Color::RED),
+								    },
+							},
+							Element {
+								state: ElementState::None,
+								tag: Tag::Label {
+									text: String::from("two"),
+									font: Font { size: 48 },
+								},
+									layout: Layout::Sequential,
+								    elements: vec![],
+								    style: Style {
+								        padding: Some(Padding::new_uniform(3)),
+								        border: Some(Border { color: Color::ORANGE, width: SidedSize::new_uniform(3) }),
+										min_width: 0,
+										min_height: 0,
+										max_width: None,
+										max_height: None,
+
+										background: Some(Color::YELLOW),
 								    },
 							}
 						],
@@ -198,7 +239,7 @@ fn main() {
 							max_width: None,
 							max_height: None,
 							
-							background: Some(Color::GREEN),
+							background: None,
 						},
 					},
 				],
@@ -207,7 +248,7 @@ fn main() {
 					border: Some(Border { color: Color::GREEN, width: SidedSize::new_uniform(3) }),
 					min_width: 0,
 					min_height: 0,
-					max_width: Some(100),
+					max_width: Some(300),
 					max_height: Some(400),
 					background: None,
 				},
@@ -226,7 +267,7 @@ fn main() {
         style: Style {
             padding: Some(Padding::new_uniform(3)),
             border: Some(Border { color: Color::GREEN, width: SidedSize::new_uniform(3) }),
-			min_width: 400,
+			min_width: 600,
 			min_height: 200,
 			max_width: None,
 			max_height: None,

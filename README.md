@@ -12,6 +12,20 @@
 - [ ] Button Implementation: add button properties (including actions) and write input handling
 - [ ] Button Styling: add styles for button states (hover/click/etc)
 	- probably want to have optional alternate style structs for each state (making sure that optional style properties fall back to the main style or an appropriate default)
+- [ ] ClippedInputContext
+	- same as base input context, but ignores input events outside of its clip area (when applicable, e.g. clicks)
+    - this should be used to prevent elements inside a scroll layout from acting on clicks within their areas while they are clipped out of the scroll view
+- [ ] Update Cycle
+	- update elements in reverse render order
+- [ ] Scroll Improvements
+  	- configurable limits
+    - scaling
+    - smoothing
+- [ ] Input Events
+  	- ensure that elements can consume certain input events to prevent their containing frames from re-using them
+- [ ] Element Organization
+	- try to extract ordering logic from the render function
+    - experiment with static ordering (once right after the ui is initialized)
 
 ### Fonts
 - Font loading
@@ -30,8 +44,8 @@
 - Style builder
 
 ### Scroll Frame
-- Figure out how to render to texture & implications for input handling
-	- Can render to a texture and cut off elements outside of the scroll view
+~~- Figure out how to render to texture & implications for input handling
+	- Can render to a texture and cut off elements outside of the scroll view~~
 - Input handling
 
 ### Input Variants
