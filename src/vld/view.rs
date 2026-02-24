@@ -26,6 +26,13 @@ pub trait RenderContext {
 
 	fn outline_rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: impl Into<Color>);
 
+	fn fill_text(&mut self, x: i32, y: i32, text: &str, size: i32, color: impl Into<Color>);
+
+	fn clip_region(&mut self, x: i32, y: i32, w: i32, h: i32) -> Option<impl RenderContext>;
+}
+
+#[allow(dead_code)]
+pub trait MeasureContext {
 	fn calculate_text_size(&self, text: &str, size: i32) -> (i32, i32);
 
 	fn fill_text(&mut self, x: i32, y: i32, text: &str, size: i32, color: impl Into<Color>);

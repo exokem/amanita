@@ -1,7 +1,7 @@
 pub mod context {
 	use raylib::{prelude::*};
 
-    use crate::vld::{CameraContext, InputContext, InputState, RenderContext};
+    use crate::vld::{CameraContext, InputContext, InputState, MeasureContext, RenderContext};
 
 	impl CameraContext for Camera2D {
 		fn position(&self) -> &Vector2 {
@@ -124,12 +124,19 @@ pub mod context {
 			self.draw_rectangle_lines(x, y, w, h, color.into());
 		}
 		
-		fn calculate_text_size(&self, text: &str, size: i32) -> (i32, i32) {
-			(self.measure_text(&text, size), size)
-		}
-		
 		fn fill_text(&mut self, x: i32, y: i32, text: &str, size: i32, color: impl Into<Color>) {
 			self.draw_text(text, x, y, size, color.into());
+		}
+		
+		fn clip_region(&mut self, x: i32, y: i32, w: i32, h: i32) -> Option<impl RenderContext> {
+			Some(self.begin_scissor_mode(x, y, w, h))
+		}
+	}
+
+	impl MeasureContext for RaylibDrawHandle<'_> {
+		
+		fn calculate_text_size(&self, text: &str, size: i32) -> (i32, i32) {
+			(self.measure_text(&text, size), size)
 		}
 	}
 
@@ -142,12 +149,150 @@ pub mod context {
 			self.draw_rectangle_lines(x, y, w, h, color.into());
 		}
 		
+		fn fill_text(&mut self, x: i32, y: i32, text: &str, size: i32, color: impl Into<Color>) {
+			self.draw_text(text, x, y, size, color.into());
+		}
+		
+		fn clip_region(&mut self, x: i32, y: i32, w: i32, h: i32) -> Option<impl RenderContext> {
+			Some(self.begin_scissor_mode(x, y, w, h))
+		}
+	}
+
+	impl MeasureContext for RaylibMode2D<'_, RaylibDrawHandle<'_>> {
 		fn calculate_text_size(&self, text: &str, size: i32) -> (i32, i32) {
 			(self.measure_text(&text, size), size)
+		}
+	}
+
+	// impl <T> RenderContext for RaylibTextureMode<'_, T> {
+	// 	fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: impl Into<Color>) {
+	// 		self.draw_rectangle(x, y, w, h, color.into());
+	// 	}
+
+	// 	fn outline_rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: impl Into<Color>) {
+	// 		self.draw_rectangle_lines(x, y, w, h, color.into());
+	// 	}
+		
+	// 	fn fill_text(&mut self, x: i32, y: i32, text: &str, size: i32, color: impl Into<Color>) {
+	// 		self.draw_text(text, x, y, size, color.into());
+	// 	}
+		
+	// 	fn clip_region(&mut self, x: i32, y: i32, w: i32, h: i32) -> impl RenderContext {
+	// 		self.begin_scissor_mode(x, y, w, h)
+	// 	}
+	// }
+
+	impl MeasureContext for RaylibHandle {
+		fn calculate_text_size(&self, text: &str, size: i32) -> (i32, i32) {
+			(self.measure_text(text, size), size)
+		}
+	}
+
+	impl MeasureContext for WeakFont {
+		fn calculate_text_size(&self, text: &str, size: i32) -> (i32, i32) {
+			let size = self.measure_text(text, size as f32, 1.0);
+			(size.x as i32, size.y as i32)
+		}
+	}
+
+	pub trait AllowClipContext {}
+	impl AllowClipContext for RaylibDrawHandle<'_> {}
+	impl AllowClipContext for RaylibMode2D<'_, RaylibDrawHandle<'_>> {}
+	impl AllowClipContext for RaylibScissorMode<'_, RaylibDrawHandle<'_>> {}
+	impl <T> AllowClipContext for RaylibTextureMode<'_, T> {}
+
+	impl RenderContext for RaylibScissorMode<'_, RaylibDrawHandle<'_>> {
+		fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: impl Into<Color>) {
+			self.draw_rectangle(x, y, w, h, color.into());
+		}
+
+		fn outline_rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: impl Into<Color>) {
+			self.draw_rectangle_lines(x, y, w, h, color.into());
 		}
 		
 		fn fill_text(&mut self, x: i32, y: i32, text: &str, size: i32, color: impl Into<Color>) {
 			self.draw_text(text, x, y, size, color.into());
+		}
+		
+		fn clip_region(&mut self, x: i32, y: i32, w: i32, h: i32) -> Option<impl RenderContext> {
+			Some(self.begin_scissor_mode(x, y, w, h))
+		}
+	}
+
+	impl <T> RenderContext for RaylibScissorMode<'_, RaylibMode2D<'_, T>> {
+		fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: impl Into<Color>) {
+			self.draw_rectangle(x, y, w, h, color.into());
+		}
+
+		fn outline_rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: impl Into<Color>) {
+			self.draw_rectangle_lines(x, y, w, h, color.into());
+		}
+		
+		fn fill_text(&mut self, x: i32, y: i32, text: &str, size: i32, color: impl Into<Color>) {
+			self.draw_text(text, x, y, size, color.into());
+		}
+		
+		fn clip_region(&mut self, x: i32, y: i32, w: i32, h: i32) -> Option<impl RenderContext> {
+			Some(self.begin_scissor_mode(x, y, w, h))
+		}
+	}
+
+	impl <T> RenderContext for RaylibScissorMode<'_, RaylibScissorMode<'_, RaylibMode2D<'_, T>>> {
+		fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: impl Into<Color>) {
+			self.draw_rectangle(x, y, w, h, color.into());
+		}
+
+		fn outline_rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: impl Into<Color>) {
+			self.draw_rectangle_lines(x, y, w, h, color.into());
+		}
+		
+		fn fill_text(&mut self, x: i32, y: i32, text: &str, size: i32, color: impl Into<Color>) {
+			self.draw_text(text, x, y, size, color.into());
+		}
+		
+		fn clip_region(&mut self, x: i32, y: i32, w: i32, h: i32) -> Option<impl RenderContext> {
+			None::<RaylibDrawHandle<'_>>
+		}
+	}
+
+	impl RenderContext for RaylibScissorMode<'_, RaylibScissorMode<'_, RaylibDrawHandle<'_>>> {
+		fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: impl Into<Color>) {
+			self.draw_rectangle(x, y, w, h, color.into());
+		}
+
+		fn outline_rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: impl Into<Color>) {
+			self.draw_rectangle_lines(x, y, w, h, color.into());
+		}
+		
+		fn fill_text(&mut self, x: i32, y: i32, text: &str, size: i32, color: impl Into<Color>) {
+			self.draw_text(text, x, y, size, color.into());
+		}
+		
+		fn clip_region(&mut self, x: i32, y: i32, w: i32, h: i32) -> Option<impl RenderContext> {
+			None::<RaylibDrawHandle<'_>>
+		}
+	}
+
+	pub struct RayViewContext {
+		pub handle: RaylibHandle,
+		pub thread: RaylibThread,
+	}
+
+	impl RayViewContext {
+		pub fn new(title: &str, width: i32, height: i32) -> Self {
+			let (mut rl, thread) = raylib::init()
+				.size(width, height)
+				.title(title)
+				.resizable()
+				.vsync()
+				.build();
+
+			rl.set_target_fps(60);
+
+			Self {
+				handle: rl,
+				thread: thread,
+			}
 		}
 	}
 }
