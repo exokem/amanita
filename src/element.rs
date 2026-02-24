@@ -331,7 +331,7 @@ impl Element {
 	}
     //</editor-fold>
 
-	pub fn render(root: &Element, offset: Option<Vec2i>, input: &impl InputContext, measure_context: &impl MeasureContext, context: &mut impl RenderContext) {
+	fn order(root: &Element) -> (Vec<&Element>, Vec<RenderRef>) {
 		let mut order: Vec<&Element> = vec![];
 		let mut linkages: Vec<RenderRef> = vec![];
 
@@ -339,7 +339,6 @@ impl Element {
 
 		let mut render_index = 0;
 
-		// 1. Render Ordering
 		// Determine render order with linkages between elements and their sub-elements
 		// Linkages essentially map the render index of an element to the render indices
 		// of each of its contained sub-elements
@@ -370,6 +369,13 @@ impl Element {
 
 			render_index += 1;
 		}
+
+		(order, linkages)
+	}
+
+	pub fn render(root: &Element, offset: Option<Vec2i>, input: &impl InputContext, measure_context: &impl MeasureContext, context: &mut impl RenderContext) {
+		// 1. Render Ordering
+		let (order, linkages) = Element::order(root);
 
 		// 2. Size Measuring
 		let mut measures = Element::measure(&order, &linkages, measure_context);
