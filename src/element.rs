@@ -292,7 +292,6 @@ impl Element {
 			}
 		}));
 
-		// 2. Size Measuring
 		for i in (0..order.len()).rev() {
 			let element = order[i];
 			let linkage = &linkages[i];
@@ -309,6 +308,24 @@ impl Element {
 		}
 
 		measures
+	}
+
+	fn arrange(order: &Vec<&Element>, linkages: &Vec<RenderRef>, measures: &mut Vec<ElementMeasure>) {
+		// All positions are relative to the root element
+		// Absolute positions are determined during rendering by applying an offset
+		for i in 0..order.len() {
+			let element = order[i];
+			let measure = measures[i];
+			let linkage = &linkages[i];
+
+			if let Some(indices) = &linkage.element_render_indices {
+				let start = *indices.first().unwrap();
+				let end = *indices.last().unwrap() + 1;
+				Element::arrange_element_content(element, &measure, &mut measures[start..end])
+			} else {
+				Element::arrange_element_content(element, &measure, &mut measures[0..0])
+			}
+		}
 	}
 
 	pub fn render(root: &Element, offset: Option<Vec2i>, input: &impl InputContext, measure_context: &impl MeasureContext, context: &mut impl RenderContext) {
@@ -351,27 +368,11 @@ impl Element {
 			render_index += 1;
 		}
 
-		// Measured elements in reverse order
-		// let mut boxes 
-
+		// 2. Size Measuring
 		let mut measures = Element::measure(&order, &linkages, measure_context);
 
 		// 3. Position Arrangement
-		// All positions are relative to the root element
-		// Absolute positions are determined during rendering by applying an offset
-		for i in 0..order.len() {
-			let element = order[i];
-			let measure = measures[i];
-			let linkage = &linkages[i];
-
-			if let Some(indices) = &linkage.element_render_indices {
-				let start = *indices.first().unwrap();
-				let end = *indices.last().unwrap() + 1;
-				Element::arrange_element_content(element, &measure, &mut measures[start..end])
-			} else {
-				Element::arrange_element_content(element, &measure, &mut measures[0..0])
-			}
-		}
+		Element::arrange(&order, &linkages, &mut measures);
 
 		let offset = offset.unwrap_or(Vec2i::zero());
 
@@ -385,8 +386,6 @@ impl Element {
 					// need to ensure that a render texture is created here, and
 					// that all contained sub-elements are rendered within it
 					let body = &element.elements[0];
-
-					
 
 					Element::render_element(element, offset, &measure, input, context);
 					if let Some(mut clip_context) = context.clip_region(
