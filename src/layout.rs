@@ -116,6 +116,8 @@ impl Flex {
 #[derive(Debug)]
 pub enum Layout {
 	Sequential,
+	// TODO: properties for limits & scroll directions
+	Scroll,
 	Flex {
 		properties: Flex,
 		// gap: usize,

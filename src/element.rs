@@ -1,8 +1,9 @@
-use std::collections::VecDeque;
+use core::panic;
+use std::collections::{VecDeque};
 
 use raylib::color::Color;
 
-use crate::{layout::{Alignment, FlexDirection, Layout, Spacing}, style::{Border, Padding, Style}, tag::Tag, vec2::Vec2i, vld::RenderContext, RenderBox};
+use crate::{layout::{Alignment, FlexDirection, Layout, Spacing}, style::{Border, Padding, Style}, tag::Tag, vec2::Vec2i, vld::{InputContext, MeasureContext, RenderContext}, RenderBox};
 
 #[derive(Debug)]
 pub struct Element {
@@ -10,6 +11,25 @@ pub struct Element {
 	pub elements: Vec<Element>,
 	pub style: Style,
 	pub layout: Layout,
+	pub state: ElementState,
+	// pub state: State,
+}
+
+#[derive(Debug)]
+pub enum ElementState {
+	Scroll { offset_y: f32 },
+	None,
+}
+
+impl ElementState {
+	pub fn update(&mut self, input: &impl InputContext) {
+		match self {
+			Self::Scroll { offset_y } => {
+				*offset_y += input.scroll_delta().y;
+			}
+			_ => {}
+		}
+	}
 }
 
 struct RenderRef {
@@ -32,7 +52,7 @@ pub struct ElementMeasure {
 }
 
 impl Element {
-	fn measure_element_content(element: &Element, sub_element_measures: &[ElementMeasure], context: &impl RenderContext) -> Vec2i {
+	fn measure_element_content(element: &Element, sub_element_measures: &[ElementMeasure], context: &impl MeasureContext) -> Vec2i {
 
 		// Sequential (plain column):
 		// - Width: largest sub element width
@@ -55,6 +75,13 @@ impl Element {
 			},
 			_ => {
 				match &element.layout {
+					Layout::Scroll => {
+						// TODO: probably shouldn't use max values here
+						Vec2i::new(
+							element.style.max_width.unwrap_or(element.style.min_width),
+							element.style.max_height.unwrap_or(element.style.min_height),
+						)
+					},
 					Layout::Sequential => measure_sequential(),
 					Layout::Flex { properties } => {
 						let total_gap = properties.calc_total_gap(sub_element_measures.len());
@@ -83,7 +110,7 @@ impl Element {
 		}
 	}
 
-	pub fn measure_element(element: &Element, sub_element_measures: &[ElementMeasure], context: &impl RenderContext) -> ElementMeasure {
+	pub fn measure_element(element: &Element, sub_element_measures: &[ElementMeasure], context: &impl MeasureContext) -> ElementMeasure {
 		let content_size = Element::measure_element_content(element, sub_element_measures, context);
 
 		// Border + padding
@@ -126,6 +153,18 @@ impl Element {
 		let inner_y = measure.position.y + measure.inner_box.y;
 
 		match &element.layout {
+			Layout::Scroll => {
+				let x = 0;
+				let mut y = 0;
+
+				for i in 0..element.elements.len() {
+					let sub_measure = &mut sub_element_measures[i];
+					sub_measure.position.x = x;
+					sub_measure.position.y = y;
+
+					y += sub_measure.size.y;
+				}
+			},
 			Layout::Sequential => {
 				let x = measure.position.x + measure.inner_box.x;
 				let mut y = measure.position.y + measure.inner_box.y;
@@ -221,13 +260,30 @@ impl Element {
 		}
 	}
 
-	pub fn render_element(element: &Element, measure: &ElementMeasure, offset: Vec2i, context: &mut impl RenderContext) {
+	pub fn render_element(element: &Element, offset: Vec2i, measure: &ElementMeasure, input: &impl InputContext, context: &mut impl RenderContext) {
 		context.outline_rect(measure.position.x + offset.x, measure.position.y + offset.y, measure.size.x, measure.size.y, Color::RED);
+
+		if let Some(bg) = element.style.background {
+			context.fill_rect(measure.position.x + offset.x, measure.position.y + offset.y, measure.size.x, measure.size.y, bg);
+		}
 		// context.outline_rect(measure.inner_box.x, measure.inner_box.y, measure.inner_box.w, measure.inner_box.h, Color::GREEN);
 	}
 
-	// Calculate minimum sizes based on styles & composition
-	pub fn render(root: &Element, context: &mut impl RenderContext) {
+	pub fn update(root: &mut Element, input: &impl InputContext, measure_context: &impl MeasureContext) {
+		// TODO: determine best order for updating (probably reverse render order, especially so inputs can be consumed at the highest level)
+
+		let mut queue = VecDeque::from([root]);
+
+		while !queue.is_empty() && let Some(el) = queue.pop_front() {
+			el.state.update(input);
+
+			for sub in &mut el.elements {
+				queue.push_back(sub);
+			}
+		}
+	}
+
+	pub fn render(root: &Element, offset: Option<Vec2i>, input: &impl InputContext, measure_context: &impl MeasureContext, context: &mut impl RenderContext) {
 		let mut order: Vec<&Element> = vec![];
 		let mut linkages: Vec<RenderRef> = vec![];
 
@@ -246,7 +302,8 @@ impl Element {
 
 			// Sub-element render indices will start at current + queue size + 1
 
-			let element_indices = if next.elements.len() != 0 {
+			// Do not include scroll layout sub-elements in standard rendering
+			let element_indices = if next.elements.len() != 0 && !matches!(next.layout, Layout::Scroll) {
 				let mut element_indices = Vec::with_capacity(next.elements.len());
 
 				// Add contents to queue
@@ -285,9 +342,9 @@ impl Element {
 			measures[i] = if let Some(indices) = &linkage.element_render_indices {
 				let start = *indices.first().unwrap();
 				let end = *indices.last().unwrap() + 1;
-				Element::measure_element(element, &measures[start..end], context)
+				Element::measure_element(element, &measures[start..end], measure_context)
 			} else {
-				Element::measure_element(element, &measures[0..0], context)
+				Element::measure_element(element, &measures[0..0], measure_context)
 			};
 
 			// measures[i] = Element::measure_element(element, &sub_element_measures, context);
@@ -310,12 +367,44 @@ impl Element {
 			}
 		}
 
+		let offset = offset.unwrap_or(Vec2i::zero());
+
 		// 4. Rendering
 		for i in 0..order.len() {
 			let element = order[i];
 			let measure = measures[i];
 
-			Element::render_element(element, &measure, Vec2i::new(10, 10), context);
+			match element.layout {
+				Layout::Scroll => {
+					// need to ensure that a render texture is created here, and
+					// that all contained sub-elements are rendered within it
+					let body = &element.elements[0];
+
+					
+
+					Element::render_element(element, offset, &measure, input, context);
+					if let Some(mut clip_context) = context.clip_region(
+						measure.inner_box.x + offset.x + measure.position.x,
+						measure.inner_box.y + offset.y + measure.position.y,
+						measure.inner_box.w,
+						measure.inner_box.h,
+					) {
+						let (ox, oy) = match element.state {
+							ElementState::Scroll { offset_y } => {
+								(0.0, offset_y)
+							},
+							_ => (0.0, 0.0)
+						};
+
+						let scrolled_offset = offset + measure.position + (0, oy as i32).into();
+						
+						Element::render(&body, Some(scrolled_offset), input,  measure_context, &mut clip_context);
+					} else {
+						panic!("Unsupported clipping operation")
+					}
+				},
+				_ => Element::render_element(element, offset, &measure, input, context),
+			}
 		}
 	}
 }

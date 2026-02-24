@@ -69,6 +69,12 @@ impl Padding {
 pub struct Style {
 	pub padding: Option<Padding>,
 	pub border: Option<Border>,
+
+	pub background: Option<Color>,
+
 	pub min_width: i32,
+	pub max_width: Option<i32>,
+
 	pub min_height: i32,
+	pub max_height: Option<i32>,
 }
