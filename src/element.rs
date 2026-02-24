@@ -283,6 +283,34 @@ impl Element {
 		}
 	}
 
+	fn measure(order: &Vec<&Element>, linkages: &Vec<RenderRef>, measure_context: &impl MeasureContext) -> Vec<ElementMeasure> {
+		let mut measures = Vec::from_iter(order.iter().map(|_| {
+			ElementMeasure {
+				position: Vec2i::zero(),
+				size: Vec2i::zero(),
+				inner_box: RenderBox::zero(),
+			}
+		}));
+
+		// 2. Size Measuring
+		for i in (0..order.len()).rev() {
+			let element = order[i];
+			let linkage = &linkages[i];
+
+			measures[i] = if let Some(indices) = &linkage.element_render_indices {
+				let start = *indices.first().unwrap();
+				let end = *indices.last().unwrap() + 1;
+				Element::measure_element(element, &measures[start..end], measure_context)
+			} else {
+				Element::measure_element(element, &measures[0..0], measure_context)
+			};
+
+			// measures[i] = Element::measure_element(element, &sub_element_measures, context);
+		}
+
+		measures
+	}
+
 	pub fn render(root: &Element, offset: Option<Vec2i>, input: &impl InputContext, measure_context: &impl MeasureContext, context: &mut impl RenderContext) {
 		let mut order: Vec<&Element> = vec![];
 		let mut linkages: Vec<RenderRef> = vec![];
@@ -326,29 +354,7 @@ impl Element {
 		// Measured elements in reverse order
 		// let mut boxes 
 
-		let mut measures = Vec::from_iter(order.iter().map(|_| {
-			ElementMeasure {
-				position: Vec2i::zero(),
-				size: Vec2i::zero(),
-				inner_box: RenderBox::zero(),
-			}
-		}));
-
-		// 2. Size Measuring
-		for i in (0..order.len()).rev() {
-			let element = order[i];
-			let linkage = &linkages[i];
-
-			measures[i] = if let Some(indices) = &linkage.element_render_indices {
-				let start = *indices.first().unwrap();
-				let end = *indices.last().unwrap() + 1;
-				Element::measure_element(element, &measures[start..end], measure_context)
-			} else {
-				Element::measure_element(element, &measures[0..0], measure_context)
-			};
-
-			// measures[i] = Element::measure_element(element, &sub_element_measures, context);
-		}
+		let mut measures = Element::measure(&order, &linkages, measure_context);
 
 		// 3. Position Arrangement
 		// All positions are relative to the root element
