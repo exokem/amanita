@@ -2,7 +2,7 @@
 
 ## Checklist
 
-- [ ] Style Builder: create a builder struct for style properties
+~~- [X] Style Builder: create a builder struct for style properties~~
 - [ ] Font Loader: create a mechanism for loading fonts as Font structs
 	- Use the loaded font when rendering text affected by the style
 - [ ] Element Rendering: re-implement rendering functionality for base elements
