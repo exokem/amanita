@@ -4,6 +4,7 @@ use std::collections::{VecDeque};
 use raylib::color::Color;
 
 use crate::{layout::{Alignment, FlexDirection, Layout, Spacing}, style::{Border, Padding, Style}, tag::Tag, vec2::Vec2i, vld::{InputContext, MeasureContext, RenderContext}, RenderBox};
+use crate::style::Font;
 
 #[derive(Debug)]
 pub struct Element {
@@ -52,6 +53,37 @@ pub struct ElementMeasure {
 }
 
 impl Element {
+	pub fn new_frame(layout: Layout, style: Style, elements: Vec<Element>) -> Self {
+		Self {
+			tag: Tag::Frame,
+			state: ElementState::None,
+			layout,
+			style,
+			elements
+		}
+	}
+
+	pub fn new_scroll_frame(style: Style, body: Element) -> Self {
+		Self {
+			tag: Tag::Frame,
+			state: ElementState::Scroll { offset_y: 0.0 },
+			layout: Layout::Scroll,
+			elements: vec![body],
+			style,
+		}
+	}
+
+	// TODO: font should be a style property most likely
+	pub fn new_label(text: String, font: Font, style: Style) -> Self {
+		Self {
+			tag: Tag::Label {text, font},
+			state: ElementState::None,
+			layout: Layout::Sequential,
+			elements: vec![],
+			style,
+		}
+	}
+
 	fn render_element(element: &Element, offset: Vec2i, measure: &ElementMeasure, input: &impl InputContext, context: &mut impl RenderContext) {
 		context.outline_rect(measure.position.x + offset.x, measure.position.y + offset.y, measure.size.x, measure.size.y, Color::RED);
 
