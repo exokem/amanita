@@ -1,18 +1,21 @@
 use core::panic;
 use std::collections::{VecDeque};
-
+use std::sync::atomic::{AtomicUsize, Ordering};
 use raylib::color::Color;
 
 use crate::{layout::{Alignment, FlexDirection, Layout, Spacing}, style::{Border, Padding, Style}, tag::Tag, vec2::Vec2i, vld::{InputContext, MeasureContext, RenderContext}, RenderBox};
 use crate::style::Font;
 
+static ELEMENT_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
 #[derive(Debug)]
 pub struct Element {
-	pub tag: Tag,
-	pub elements: Vec<Element>,
-	pub style: Style,
-	pub layout: Layout,
-	pub state: ElementState,
+	index: usize,
+	tag: Tag,
+	elements: Vec<Element>,
+	style: Style,
+	layout: Layout,
+	state: ElementState,
 	// pub state: State,
 }
 
@@ -55,6 +58,7 @@ pub struct ElementMeasure {
 impl Element {
 	pub fn new_frame(layout: Layout, style: Style, elements: Vec<Element>) -> Self {
 		Self {
+			index: ELEMENT_COUNTER.fetch_add(1, Ordering::Relaxed),
 			tag: Tag::Frame,
 			state: ElementState::None,
 			layout,
@@ -65,6 +69,7 @@ impl Element {
 
 	pub fn new_scroll_frame(style: Style, body: Element) -> Self {
 		Self {
+			index: ELEMENT_COUNTER.fetch_add(1, Ordering::Relaxed),
 			tag: Tag::Frame,
 			state: ElementState::Scroll { offset_y: 0.0 },
 			layout: Layout::Scroll,
@@ -76,6 +81,7 @@ impl Element {
 	// TODO: font should be a style property most likely
 	pub fn new_label(text: String, font: Font, style: Style) -> Self {
 		Self {
+			index: ELEMENT_COUNTER.fetch_add(1, Ordering::Relaxed),
 			tag: Tag::Label {text, font},
 			state: ElementState::None,
 			layout: Layout::Sequential,
