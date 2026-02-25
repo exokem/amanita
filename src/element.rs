@@ -1,5 +1,8 @@
 use core::panic;
-use std::collections::{VecDeque};
+use std::collections::{HashMap, VecDeque};
+use std::iter::Rev;
+use std::ops::{Index, IndexMut};
+use std::slice::Iter;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use raylib::color::Color;
 
@@ -12,7 +15,7 @@ static ELEMENT_COUNTER: AtomicUsize = AtomicUsize::new(0);
 pub struct Element {
 	index: usize,
 	tag: Tag,
-	elements: Vec<Element>,
+	elements: Vec<usize>,
 	style: Style,
 	layout: Layout,
 	state: ElementState,
@@ -36,11 +39,6 @@ impl ElementState {
 	}
 }
 
-struct RenderRef {
-	render_index: usize,
-	element_render_indices: Option<Vec<usize>>
-}
-
 // Boxes here are just relative to the element and are not adjusted during arrangement
 // They are purely for reference while arranging the element's contents
 
@@ -55,41 +53,270 @@ pub struct ElementMeasure {
 	pub inner_box: RenderBox,
 }
 
-impl Element {
-	pub fn new_frame(layout: Layout, style: Style, elements: Vec<Element>) -> Self {
-		Self {
+pub struct ElementSet {
+	elements: Vec<Element>,
+
+	render_order: Vec<usize>,
+}
+
+impl Index<usize> for ElementSet {
+	type Output = Element;
+
+	fn index(&self, index: usize) -> &Self::Output {
+		&self.elements[index]
+	}
+}
+
+impl IndexMut<usize> for ElementSet {
+	fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+		&mut self.elements[index]
+	}
+}
+
+impl ElementSet {
+	pub fn new(mut root: impl FnMut(&mut ElementSet) -> usize) -> Self {
+		let mut set = Self {
+			elements: vec![],
+			render_order: vec![],
+		};
+
+		root(&mut set);
+
+		set
+	}
+
+	pub fn len(&self) -> usize {
+		self.elements.len()
+	}
+
+	pub fn root(&self) -> &Element {
+		&self.elements[0]
+	}
+
+	pub fn new_frame(&mut self, layout: Layout, style: Style, mut sub_elements: impl FnMut(&mut ElementSet) -> Vec<usize>) -> usize {
+		let e = Element {
 			index: ELEMENT_COUNTER.fetch_add(1, Ordering::Relaxed),
 			tag: Tag::Frame,
 			state: ElementState::None,
 			layout,
 			style,
-			elements
-		}
+			elements: sub_elements(self)
+		};
+
+		let index = e.index;
+		self.elements.push(e);
+
+		index
 	}
 
-	pub fn new_scroll_frame(style: Style, body: Element) -> Self {
-		Self {
+	pub fn new_scroll_frame(&mut self, style: Style, mut body: impl FnMut(&mut ElementSet) -> usize) -> usize {
+		let mut e = Element {
 			index: ELEMENT_COUNTER.fetch_add(1, Ordering::Relaxed),
 			tag: Tag::Frame,
 			state: ElementState::Scroll { offset_y: 0.0 },
 			layout: Layout::Scroll,
-			elements: vec![body],
+			elements: vec![body(self)],
 			style,
-		}
+		};
+
+		let index = e.index;
+		self.elements.push(e);
+
+		index
 	}
 
 	// TODO: font should be a style property most likely
-	pub fn new_label(text: String, font: Font, style: Style) -> Self {
-		Self {
+	pub fn new_label(&mut self, text: String, font: Font, style: Style) -> usize {
+		let e = Element {
 			index: ELEMENT_COUNTER.fetch_add(1, Ordering::Relaxed),
 			tag: Tag::Label {text, font},
 			state: ElementState::None,
 			layout: Layout::Sequential,
 			elements: vec![],
 			style,
+		};
+
+		let index = e.index;
+		self.elements.push(e);
+
+		index
+	}
+
+	pub fn sort(&mut self) -> &mut Self {
+		self.elements.sort_by(|a, b| a.index.cmp(&b.index));
+
+		self
+	}
+
+	fn update_render_ordering(&mut self) {
+		let mut render_order: Vec<usize> = vec![];
+
+		let mut queue = VecDeque::from([0usize]);
+
+		let mut render_index = 0;
+
+		// Determine render order with linkages between elements and their sub-elements
+		// Linkages essentially map the render index of an element to the render indices
+		// of each of its contained sub-elements
+		// That way, when measuring elements non-recursively in reverse render order,
+		// Elements that contain sub-elements will have a way to retrieve the measured
+		// sizes of their sub-elements
+		while queue.len() != 0 && let Some(next) = queue.pop_front() {
+
+			let next = &self[next];
+
+			// Sub-element render indices will start at current + queue size + 1
+
+			if next.elements.len() != 0 {
+				// Add contents to queue
+				for i in &next.elements {
+					queue.push_back(*i);
+				}
+			}
+
+			render_order.push(next.index);
+
+			render_index += 1;
+		}
+
+		self.render_order = render_order;
+	}
+
+	fn update(&mut self, input_context: &impl InputContext, measure_context: &impl MeasureContext) {
+		// Calculate render order as needed
+		// Will be cleared when an element needs to trigger ordering changes
+		if self.render_order.is_empty() {
+			self.update_render_ordering();
+		}
+
+		for element_index in self.render_order.iter().rev() {
+			let el = &mut self.elements[*element_index];
+			el.update(input_context, measure_context);
 		}
 	}
 
+	// Output order MUST match sorted element order
+	// Note that this is NOT the same as the render order, but rather the order of elements after
+	// being sorted by their index
+	fn measure(&self, measure_context: &impl MeasureContext) -> Vec<ElementMeasure> {
+		let mut measures = Vec::from_iter(self.elements.iter().map(|_| {
+			ElementMeasure {
+				position: Vec2i::zero(),
+				size: Vec2i::zero(),
+				inner_box: RenderBox::zero(),
+			}
+		}));
+
+		// Render order contains element indices
+		// Element set is sorted by ascending element index
+		for element_index in self.render_order.iter().rev() {
+			let element = &self[*element_index];
+
+			// Map indices of sub elements to calculated measures
+			// This is necessary because sub elements may not have consecutive indices
+			let sub_element_measures = element.elements.iter().map(|element_index| {
+				measures[*element_index]
+			}).collect::<Vec<_>>();
+
+			// Store the measurement under the element's assigned index, not its position in the render order
+			measures[*element_index] = Element::measure_element(element, &sub_element_measures, measure_context);
+		}
+
+		measures
+	}
+
+	fn arrange(&self, measures: &mut Vec<ElementMeasure>) {
+		// All positions are relative to the root element
+		// Absolute positions are determined during rendering by applying an offset
+		for element_index in &self.render_order {
+			let element = &self[*element_index];
+			let measure = measures[*element_index];
+
+			Element::arrange_element_content(element, &measure, measures);
+		}
+	}
+
+	fn render(&self, offset: Option<Vec2i>, measures: &Vec<ElementMeasure>, input_context: &impl InputContext, render_context: &mut impl RenderContext) {
+
+		let offset = offset.unwrap_or(Vec2i::zero());
+
+		// Bind element index to clip box and render offset
+		let mut clip_map: HashMap<usize, (RenderBox, Vec2i)> = HashMap::new();
+
+		for element_index in &self.render_order {
+			let element = &self[*element_index];
+			let measure = measures[*element_index];
+
+			let clip_context = if let Some(&(clip_region, clip_offset)) = clip_map.get(element_index) {
+				if let Some(mut clipped_render_context) =render_context.clip_region(clip_region.x, clip_region.y, clip_region.w, clip_region.h) {
+					Element::render_element(element, clip_offset, &measure, input_context, &mut clipped_render_context);
+				} else {
+					panic!("Unsupported clipping depth")
+				}
+
+				Some((clip_region, clip_offset))
+			} else {
+				Element::render_element(element, offset, &measure, input_context, render_context);
+				None
+			};
+
+			if let Some((clip_region, clip_offset)) = clip_context {
+				if !matches!(element.layout, Layout::Scroll) {
+					for sub_index in &element.elements {
+						clip_map.insert(*sub_index, (clip_region, clip_offset));
+					}
+				}
+			}
+
+			match element.layout {
+				Layout::Scroll => {
+					// need to ensure that a render texture is created here, and
+					// that all contained sub-elements are rendered within it
+					let body = &element.elements[0];
+
+					// Element::render_element(element, offset, &measure, input_context, render_context);
+
+					let scroll_clip = RenderBox::new(
+						measure.inner_box.x + offset.x + measure.position.x,
+						measure.inner_box.y + offset.y + measure.position.y,
+						measure.inner_box.w,
+						measure.inner_box.h,
+					);
+
+					let (ox, oy) = match element.state {
+						ElementState::Scroll { offset_y } => {
+							(0.0, offset_y)
+						},
+						_ => (0.0, 0.0)
+					};
+
+					let scrolled_offset = offset + (ox as i32, oy as i32).into();
+
+					for sub_index in &element.elements {
+						clip_map.insert(*sub_index, (scroll_clip, scrolled_offset));
+					}
+				},
+				_ => {},
+			}
+		}
+	}
+
+	pub fn process_frame(&mut self, offset: Option<Vec2i>, input_context: &impl InputContext, measure_context: &impl MeasureContext, render_context: &mut impl RenderContext) {
+		// 1. Update elements (reverse render order)
+		self.update(input_context, measure_context);
+
+		// 2. Measure elements (reverse render order)
+		let mut measures = self.measure(measure_context);
+
+		// 3. Arrange elements (render order)
+		self.arrange(&mut measures);
+
+		// 4. Render elements (render order)
+		self.render(offset, &measures, input_context, render_context);
+	}
+}
+
+impl Element {
 	fn render_element(element: &Element, offset: Vec2i, measure: &ElementMeasure, input: &impl InputContext, context: &mut impl RenderContext) {
 		context.outline_rect(measure.position.x + offset.x, measure.position.y + offset.y, measure.size.x, measure.size.y, Color::RED);
 
@@ -99,18 +326,8 @@ impl Element {
 		// context.outline_rect(measure.inner_box.x, measure.inner_box.y, measure.inner_box.w, measure.inner_box.h, Color::GREEN);
 	}
 
-	pub fn update(root: &mut Element, input: &impl InputContext, measure_context: &impl MeasureContext) {
-		// TODO: determine best order for updating (probably reverse render order, especially so inputs can be consumed at the highest level)
-
-		let mut queue = VecDeque::from([root]);
-
-		while !queue.is_empty() && let Some(el) = queue.pop_front() {
-			el.state.update(input);
-
-			for sub in &mut el.elements {
-				queue.push_back(sub);
-			}
-		}
+	pub fn update(&mut self, input: &impl InputContext, measure_context: &impl MeasureContext) {
+		self.state.update(input);
 	}
 
     //<editor-fold desc="Measuring">
@@ -200,67 +417,33 @@ impl Element {
 
 		ElementMeasure { position: Vec2i::zero(), size: size, inner_box: inner_box }
 	}
-
-	fn measure(order: &Vec<&Element>, linkages: &Vec<RenderRef>, measure_context: &impl MeasureContext) -> Vec<ElementMeasure> {
-		let mut measures = Vec::from_iter(order.iter().map(|_| {
-			ElementMeasure {
-				position: Vec2i::zero(),
-				size: Vec2i::zero(),
-				inner_box: RenderBox::zero(),
-			}
-		}));
-
-		for i in (0..order.len()).rev() {
-			let element = order[i];
-			let linkage = &linkages[i];
-
-			measures[i] = if let Some(indices) = &linkage.element_render_indices {
-				let start = *indices.first().unwrap();
-				let end = *indices.last().unwrap() + 1;
-				Element::measure_element(element, &measures[start..end], measure_context)
-			} else {
-				Element::measure_element(element, &measures[0..0], measure_context)
-			};
-
-			// measures[i] = Element::measure_element(element, &sub_element_measures, context);
-		}
-
-		measures
-	}
     //</editor-fold>
 
     //<editor-fold desc="Arranging">
     // Position sub elements within the element
-	fn arrange_element_content(element: &Element, measure: &ElementMeasure, sub_element_measures: &mut [ElementMeasure]) {
-		if sub_element_measures.is_empty() {
+	fn arrange_element_content(element: &Element, measure: &ElementMeasure, all_measures: &mut Vec<ElementMeasure>) {
+		if element.elements.is_empty() {
 			return
 		}
 
-		let content_width: i32 = sub_element_measures.iter().map(|m| m.size.x).sum();
-		let content_height: i32 = sub_element_measures.iter().map(|m| m.size.y).sum();
+		let content_width: i32 = element.elements.iter().map(|sub_i| {
+			all_measures[*sub_i].size.x
+		}).sum();
+
+		let content_height: i32 = element.elements.iter().map(|sub_i| {
+			all_measures[*sub_i].size.y
+		}).sum();
 
 		let inner_x = measure.position.x + measure.inner_box.x;
 		let inner_y = measure.position.y + measure.inner_box.y;
 
 		match &element.layout {
-			Layout::Scroll => {
-				let x = 0;
-				let mut y = 0;
-
-				for i in 0..element.elements.len() {
-					let sub_measure = &mut sub_element_measures[i];
-					sub_measure.position.x = x;
-					sub_measure.position.y = y;
-
-					y += sub_measure.size.y;
-				}
-			},
-			Layout::Sequential => {
+			Layout::Sequential | Layout::Scroll => {
 				let x = measure.position.x + measure.inner_box.x;
 				let mut y = measure.position.y + measure.inner_box.y;
 
-				for i in 0..element.elements.len() {
-					let sub_measure = &mut sub_element_measures[i];
+				for &sub_index in &element.elements {
+					let sub_measure = &mut all_measures[sub_index];
 
 					sub_measure.position.x = x;
 					sub_measure.position.y = y;
@@ -270,7 +453,7 @@ impl Element {
 			},
 			Layout::Flex { properties } => {
 				let gap = properties.gap as i32;
-				let total_gap = properties.calc_total_gap(sub_element_measures.len());
+				let total_gap = properties.calc_total_gap(element.elements.len());
 
 				let (inner_start, inner_cross_start, inner_size, inner_cross_size, content_size) = match properties.direction {
 					FlexDirection::Row => {
@@ -285,15 +468,15 @@ impl Element {
 
 				let (mut coord, coord_inc) = match properties.spacing {
 					Spacing::Around => {
-						let space = unused_size / (sub_element_measures.len() as i32 * 2);
+						let space = unused_size / (element.elements.len() as i32 * 2);
 						(inner_start + space, 2 * space)
 					},
 					Spacing::Between => {
-						let space = unused_size / (sub_element_measures.len() as i32 - 1);
+						let space = unused_size / (element.elements.len() as i32 - 1);
 						(inner_start, space)
 					},
 					Spacing::Even => {
-						let space = unused_size / (sub_element_measures.len() as i32 + 1);
+						let space = unused_size / (element.elements.len() as i32 + 1);
 						(inner_start + space, space)
 					},
 					Spacing::Stretch => todo!(),
@@ -312,7 +495,9 @@ impl Element {
 					},
 				};
 
-				for el in sub_element_measures {
+				for sub_index in &element.elements {
+					let el = &mut all_measures[*sub_index];
+
 					let el_cross_size = match properties.direction {
 						FlexDirection::Row => el.size.y,
 						FlexDirection::Col => el.size.x,
@@ -347,116 +532,6 @@ impl Element {
 				}
 			},
 			Layout::Grid { gap_row, gap_col, rows, cols } => {},
-		}
-	}
-
-	fn arrange(order: &Vec<&Element>, linkages: &Vec<RenderRef>, measures: &mut Vec<ElementMeasure>) {
-		// All positions are relative to the root element
-		// Absolute positions are determined during rendering by applying an offset
-		for i in 0..order.len() {
-			let element = order[i];
-			let measure = measures[i];
-			let linkage = &linkages[i];
-
-			if let Some(indices) = &linkage.element_render_indices {
-				let start = *indices.first().unwrap();
-				let end = *indices.last().unwrap() + 1;
-				Element::arrange_element_content(element, &measure, &mut measures[start..end])
-			} else {
-				Element::arrange_element_content(element, &measure, &mut measures[0..0])
-			}
-		}
-	}
-    //</editor-fold>
-
-	fn order(root: &Element) -> (Vec<&Element>, Vec<RenderRef>) {
-		let mut order: Vec<&Element> = vec![];
-		let mut linkages: Vec<RenderRef> = vec![];
-
-		let mut queue = VecDeque::from([root]);
-
-		let mut render_index = 0;
-
-		// Determine render order with linkages between elements and their sub-elements
-		// Linkages essentially map the render index of an element to the render indices
-		// of each of its contained sub-elements
-		// That way, when measuring elements non-recursively in reverse render order,
-		// Elements that contain sub-elements will have a way to retrieve the measured
-		// sizes of their sub-elements
-		while queue.len() != 0 && let Some(next) = queue.pop_front() {
-
-			// Sub-element render indices will start at current + queue size + 1
-
-			// Do not include scroll layout sub-elements in standard rendering
-			let element_indices = if next.elements.len() != 0 && !matches!(next.layout, Layout::Scroll) {
-				let mut element_indices = Vec::with_capacity(next.elements.len());
-
-				// Add contents to queue
-				for el in &next.elements {
-					element_indices.push(render_index + queue.len() + 1);
-					queue.push_back(&el);
-				}
-
-				Some(element_indices)
-			} else {
-				None
-			};
-
-			order.push(next);
-			linkages.push(RenderRef { render_index: render_index, element_render_indices: element_indices });
-
-			render_index += 1;
-		}
-
-		(order, linkages)
-	}
-
-	pub fn render(root: &Element, offset: Option<Vec2i>, input: &impl InputContext, measure_context: &impl MeasureContext, context: &mut impl RenderContext) {
-		// 1. Render Ordering
-		let (order, linkages) = Element::order(root);
-
-		// 2. Size Measuring
-		let mut measures = Element::measure(&order, &linkages, measure_context);
-
-		// 3. Position Arrangement
-		Element::arrange(&order, &linkages, &mut measures);
-
-		let offset = offset.unwrap_or(Vec2i::zero());
-
-		// 4. Rendering
-		for i in 0..order.len() {
-			let element = order[i];
-			let measure = measures[i];
-
-			match element.layout {
-				Layout::Scroll => {
-					// need to ensure that a render texture is created here, and
-					// that all contained sub-elements are rendered within it
-					let body = &element.elements[0];
-
-					Element::render_element(element, offset, &measure, input, context);
-					if let Some(mut clip_context) = context.clip_region(
-						measure.inner_box.x + offset.x + measure.position.x,
-						measure.inner_box.y + offset.y + measure.position.y,
-						measure.inner_box.w,
-						measure.inner_box.h,
-					) {
-						let (ox, oy) = match element.state {
-							ElementState::Scroll { offset_y } => {
-								(0.0, offset_y)
-							},
-							_ => (0.0, 0.0)
-						};
-
-						let scrolled_offset = offset + measure.position + (measure.inner_box.x, measure.inner_box.y).into() + (0, oy as i32).into();
-
-						Element::render(&body, Some(scrolled_offset), input,  measure_context, &mut clip_context);
-					} else {
-						panic!("Unsupported clipping operation")
-					}
-				},
-				_ => Element::render_element(element, offset, &measure, input, context),
-			}
 		}
 	}
 }
